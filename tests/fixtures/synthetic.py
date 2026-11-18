@@ -127,6 +127,7 @@ def make_session(
     v_max_mps: float = 80.0,
     t0_s: float = 600.0,
     session_name: str = "Qualifying",
+    lateral_frac: tuple[float, float] = (0.3, 0.8),
 ) -> FakeSession:
     """Simulate ``n_laps`` consecutive flying laps per driver.
 
@@ -140,6 +141,9 @@ def make_session(
         v_max_mps: Speed on straights; corners slow down with curvature.
         t0_s: Session time of the first driver's lap-1 start.
         session_name: FastF1 session name.
+        lateral_frac: Range of each driver's lateral-offset amplitude as a fraction of the
+            half-width. ``(0, 0)`` makes every car follow the centerline exactly, like
+            map-matched feed positions.
     """
     ds = 0.5
     s_grid = np.arange(0.0, track.length_m * n_laps + ds, ds)
@@ -153,7 +157,7 @@ def make_session(
     for i, drv in enumerate(drivers):
         num = str(i + 1)
         start = t0_s + 90.0 * i
-        amp = rng.uniform(0.3, 0.8) * track.half_width_m
+        amp = rng.uniform(*lateral_frac) * track.half_width_m
         phase = rng.uniform(0, 2 * np.pi)
         k = int(rng.integers(2, 6))
 

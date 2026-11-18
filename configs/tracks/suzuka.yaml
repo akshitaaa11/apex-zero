@@ -1,0 +1,29 @@
+# Suzuka International Racing Course, Japan. Reconstruction config (Phase 2, P2.10).
+name: suzuka
+# Official lap length published by F1/FIA: 5.807 km.
+official_length_m: 5807
+# Figure-eight: the track crosses itself (bridge between Degner/130R approach and the
+# Spoon/Hairpin section), so projections must use the s-continuity window.
+self_intersecting: true
+# Plausible total width range [m]; each side is clipped to half of it.
+width_prior_m: {min: 9.0, max: 22.0}
+# Samples are car centres; an F1 car is ~2 m wide, so the edge is ~1 m beyond the band.
+width_margin_m: 1.0
+# Smoothing length scales [m] (track/centerline.py explains the meaning).
+smoothing: {seed: 10.0, xy: 5.0, z: 60.0, width: 40.0, kappa: 10.0, bank: 50.0}
+bin_m: 5.0
+width_bin_m: 10.0
+refine_iterations: 3
+window_m: 50.0
+estimate_bank: true
+recentre: true
+# F1 position data (OpenF1 and FastF1 relay the same feed) is map-matched onto one reference
+# line: across 74 laps of 20 drivers the lateral spread is ~0.25 m, so width and banking are
+# not observable from it (docs/data.md). ASSUMPTION, not a measurement: 12 m is the FIA minimum
+# width for new Grade 1 circuits, used until a measured width (e.g. from survey or imagery) is
+# available. Recorded in the asset report as width_source: config_nominal.
+min_observed_spread_m: 2.0
+nominal_width_m: 12.0
+sessions:
+  reference: {year: 2024, event: Japan, session: Q, source: openf1}
+corners: []
