@@ -1,8 +1,8 @@
 # generated data and outputs
-data/
-runs/
-replays/
-clips/
+/data/
+/runs/
+/replays/
+/clips/
 
 # secrets / local config
 .env
