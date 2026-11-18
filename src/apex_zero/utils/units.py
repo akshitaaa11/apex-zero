@@ -2,9 +2,16 @@
 
 Non-SI quantities carry a suffix in their name (``speed_kph``, ``angle_deg``).
 
-Telemetry unit constants (e.g. the scale of FastF1/OpenF1 position X/Y/Z) are deliberately
-**not** defined yet: they are pinned against real data, with tests, in Phase 1 (P1). Do not
-assume them.
+Telemetry unit constants (P1.4). Both FastF1 and OpenF1 relay the F1 live-timing position feed,
+whose X/Y/Z are integers in decimetres:
+
+- ``OPENF1_POS_TO_M`` is **verified**: ``tests/network/test_units.py`` measures the fastest-lap
+  polyline at two circuits against their official lengths (results in ``docs/data.md``).
+- ``FASTF1_POS_TO_M`` is taken from FastF1's own documentation (``fastf1.core.Telemetry``:
+  "X position [1/10 m]") and agrees with the OpenF1 measurement, but the FastF1 half of the
+  network test could not run yet (live timing requires an F1 account; see ``docs/data.md``).
+- The OpenF1 vs FastF1 axis comparison is **not yet verified** for the same reason. Until it is,
+  code must not mix positions from the two sources in one track build.
 """
 
 from __future__ import annotations
@@ -16,7 +23,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 __all__ = [
+    "FASTF1_POS_TO_M",
     "MPS_PER_KPH",
+    "OPENF1_POS_TO_M",
     "deg_to_rad",
     "kph_to_mps",
     "mps_to_kph",
@@ -25,6 +34,12 @@ __all__ = [
 
 #: Metres per second in one kilometre per hour (1000 m / 3600 s).
 MPS_PER_KPH: float = 1000.0 / 3600.0
+
+#: Metres per FastF1 position unit (X/Y/Z are in 1/10 m). See module docstring.
+FASTF1_POS_TO_M: float = 0.1
+
+#: Metres per OpenF1 position unit (``location`` x/y/z). Verified by tests/network/test_units.py.
+OPENF1_POS_TO_M: float = 0.1
 
 FloatArray = NDArray[np.float64]
 
