@@ -79,6 +79,29 @@ Results (OpenF1 rows) from `uv run pytest -m network tests/network/test_units.py
 - Axis transform between the two sources: **unknown**. Do not mix them in one track build until
   `test_openf1_axes_match_fastf1` has passed.
 
+## Positions are map-matched (found in Phase 2)
+
+Across 74 accurate laps of 20 drivers at Suzuka 2024 Q, the lateral spread of all samples around
+the reconstructed line is ~0.2 m (1st to 99th percentile per 10 m bin, median over the lap).
+Different cars' racing lines differ by metres, so the feed's positions are snapped onto one
+reference line. Consequences ([ADR 0003](decisions/0003-track-width-from-map-matched-data.md)):
+
+- **Track width and banking cannot be measured from this data.** The Suzuka asset uses an
+  assumed 12 m width, recorded as `width_source: config_nominal`.
+- The reconstructed centerline is F1's reference line, recovered to within ~0.2 m.
+- The line comes out **~0.5 % shorter than the official lap length** at both circuits tried:
+
+| Circuit | Reconstructed | Official | Error | Dense multi-lap medians (independent check) |
+|---|---|---|---|---|
+| Suzuka 2024 Q | 5777.9 m | 5807 m | −0.502 % | 5776–5782 m |
+| Monza 2024 Q | 5761.5 m | 5793 m | −0.544 % | not computed |
+
+The Suzuka value does not move with smoothing once smoothing is small enough not to cut
+corners (5777.8–5778.2 m over seed 5–15 m, offsets 3–5 m), so it is the line's length, not a
+fitting artefact. Possible causes, not resolved: the feed's reference line is not the line the
+official length is measured on (e.g. closer to a racing line), or the position unit is not
+exactly 0.1 m. Resolving it needs independent geometry (survey, imagery, or FastF1 data).
+
 ## OpenF1 API facts the client relies on
 
 Checked against live responses on 2026-11-18:

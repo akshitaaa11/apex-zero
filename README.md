@@ -72,6 +72,9 @@ To use another circuit, change `--event` (and `--name`/`--track`) in the same co
 uv run apex data fetch --year 2024 --event Japan --session Q
 uv run apex track build --year 2024 --event Japan --session Q --name suzuka
 
+# inspect the track (plots in docs/media/tracks/)
+uv run apex track inspect suzuka --debug
+
 # ghost
 uv run apex ghost extract --year 2024 --event Japan --session Q --driver VER --lap fastest --track suzuka
 

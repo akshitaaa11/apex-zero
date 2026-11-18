@@ -14,3 +14,10 @@ Out-of-scope issues spotted while working on a task. Each entry: what, where, an
 - (Phase 1, open) Add a trimmed FastF1 lap fixture once FastF1 data is accessible.
 - (Phase 1) pandas 2.3.3 + NumPy 2.5 warn on `pd.Timedelta(seconds=...)`; tests use
   `pd.Timedelta(x, unit="s")`. FastF1 itself may emit this warning on real data.
+- (Phase 2, open) Replace Suzuka's assumed 12 m width (ADR 0003) with a measured width (survey
+  data, aerial imagery, or a source with real lateral position information).
+- (Phase 2, open) Explain the systematic ~0.5 % shortfall of the reconstructed length against
+  the official length (Suzuka −0.502 %, Monza −0.544 %; `docs/data.md`). The Phase 2 Suzuka
+  length check (±0.5 %) fails by 0.002 percentage points.
+- (Phase 2) `apex track build --fixture synthetic_*` (mentioned in CLAUDE.md) is not
+  implemented: the synthetic generator lives in `tests/fixtures/`, which `src/` must not import.

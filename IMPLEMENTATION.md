@@ -99,23 +99,26 @@ _Delivered with OpenF1 as the source (ADR 0002): 2024 Suzuka Q, 20 drivers, 223 
 **Dependencies:** Phase 1. Workflow: `SKILLS.md` → *reconstruct-track*.
 
 **Tasks**
-- [ ] **P2.1** `track/asset.py`: a `TrackAsset` frozen dataclass with arrays on a 1 m `s` grid: `s, x, y, z, psi, kappa, grade, bank, w_left, w_right`, plus `length`, `name`, `source_sessions`, `build_hash`, `params`. `.save(path)` and `.load(path)` (`.npz` + `meta.json`).
-- [ ] **P2.2** `track/frenet.py`: vectorised `world_to_frenet(points, s_hint=None, window_m=50)` (windowed, handles self-intersection) and `frenet_to_world(s, n)`, plus interpolation helpers for every asset channel at arbitrary `s` (periodic).
-- [ ] **P2.3** `track/centerline.py`: seed from the fastest accurate lap, run iterative median refinement (bins over `s`, 2–3 iterations), and fit a periodic smoothing spline, with smoothing params from `configs/tracks/<name>.yaml`.
-- [ ] **P2.4** Start/finish alignment: `s = 0` at the timing line (the interpolated position at lap start across fastest laps).
-- [ ] **P2.5** `track/width.py`: percentile-based left/right boundaries with priors, margin and smoothing. Exclude pit and out laps.
-- [ ] **P2.6** `track/elevation.py`: heavy z smoothing, `grade(s)`, vertical curvature, and an optional banking estimate (a regression of z on n per s window, clipped to ±10°).
-- [ ] **P2.7** `track/mesh.py`: generate a road ribbon (left/right boundaries at 1 m), kerb strips at corners (from curvature), a run-off plane, and centerline and boundary polylines as glTF nodes. Normals and UVs for a tiling asphalt texture. Export `track.glb`.
-- [ ] **P2.8** `track/reconstruct.py`: the orchestrator `build_track(config, sessions) -> TrackAsset`.
-- [ ] **P2.9** CLI: `apex track build`, `apex track inspect <name> [--debug]`. Inspect saves `docs/media/tracks/<name>_{xy,curvature,width,elevation}.png`.
-- [ ] **P2.10** `configs/tracks/suzuka.yaml`, with `self_intersecting: true` and the official length.
+- [x] **P2.1** `track/asset.py`: a `TrackAsset` frozen dataclass with arrays on a 1 m `s` grid: `s, x, y, z, psi, kappa, grade, bank, w_left, w_right`, plus `length`, `name`, `source_sessions`, `build_hash`, `params`. `.save(path)` and `.load(path)` (`.npz` + `meta.json`).
+- [x] **P2.2** `track/frenet.py`: vectorised `world_to_frenet(points, s_hint=None, window_m=50)` (windowed, handles self-intersection) and `frenet_to_world(s, n)`, plus interpolation helpers for every asset channel at arbitrary `s` (periodic).
+- [x] **P2.3** `track/centerline.py`: seed from the fastest accurate lap, run iterative median refinement (bins over `s`, 2–3 iterations), and fit a periodic smoothing spline, with smoothing params from `configs/tracks/<name>.yaml`.
+- [x] **P2.4** Start/finish alignment: `s = 0` at the timing line (the interpolated position at lap start across fastest laps).
+- [x] **P2.5** `track/width.py`: percentile-based left/right boundaries with priors, margin and smoothing. Exclude pit and out laps.
+- [x] **P2.6** `track/elevation.py`: heavy z smoothing, `grade(s)`, vertical curvature, and an optional banking estimate (a regression of z on n per s window, clipped to ±10°).
+- [x] **P2.7** `track/mesh.py`: generate a road ribbon (left/right boundaries at 1 m), kerb strips at corners (from curvature), a run-off plane, and centerline and boundary polylines as glTF nodes. Normals and UVs for a tiling asphalt texture. Export `track.glb`.
+- [x] **P2.8** `track/reconstruct.py`: the orchestrator `build_track(config, sessions) -> TrackAsset`.
+- [x] **P2.9** CLI: `apex track build`, `apex track inspect <name> [--debug]`. Inspect saves `docs/media/tracks/<name>_{xy,curvature,width,elevation}.png`.
+- [x] **P2.10** `configs/tracks/suzuka.yaml`, with `self_intersecting: true` and the official length.
 - [ ] **P2.11** Tests:
   - synthetic ellipse: centerline RMS < 0.5 m, length error < 0.2%, curvature error < 5% relative
   - synthetic figure-eight with elevation: correct `s` continuity through the crossing, z RMS < 0.5 m
   - property test (hypothesis): `frenet_to_world(world_to_frenet(p)) ≈ p` for points within 20 m of the line
   - real Suzuka (marked `slow` and `network`): length within 0.5% of official, ≥ 99% of fastest-lap points inside bounds
+  - _Status (2026-11-18): all synthetic tests and the property test pass. The real Suzuka test is written and run: inside-bounds 100 % passes, length −0.502 % **fails** the ±0.5 % check (`docs/data.md`). Left unticked._
 
 **Deliverables:** `data/processed/tracks/suzuka/{asset.npz, meta.json, track.glb}`, plus inspection plots.
+
+_Status (2026-11-18): deliverables built from OpenF1 2024 Q; plots in `docs/media/tracks/`. Gate: synthetic tests pass; build 12–15 s (< 60 s); `track.glb` passes the Khronos glTF validator (0 errors, 0 warnings), road normals all point up, the ribbon is closed, and it renders in three.js (`docs/media/tracks/suzuka_glb_*.png`). Not met: Suzuka length −0.502 % vs ±0.5 %. Width is assumed, not measured (ADR 0003)._
 
 **Gate**
 - All synthetic tests pass. Suzuka passes the real-data checks.

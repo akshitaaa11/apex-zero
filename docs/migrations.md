@@ -4,6 +4,16 @@ Every change to a versioned format (`TrackAsset`, `Ghost`, `CarParams`, replay b
 `REPLAY_FORMAT_VERSION`, cache layout/keys) gets an entry here: the version bump, what changed,
 why, and how to migrate existing data (or that it must be regenerated).
 
+## TrackAsset v1 (Phase 2, P2.1), new
+
+`track.asset.ASSET_VERSION = 1`. First version; nothing to migrate. Written to
+`APEX_PROCESSED_DIR/tracks/<name>/`: `asset.npz` (float64 channels `s, x, y, z, psi, kappa,
+grade, bank, w_left, w_right` on a uniform ~1 m grid, `s = 0` at the timing line) and
+`meta.json` (`name, length, n_points, source_sessions, build_hash, params, report,
+asset_sha256`). `report` holds the build's validation results, including `width_source` and
+`bank_source` (ADR 0003). `track.glb` (glTF 2.0, y-up) sits next to them. `TrackAsset.load`
+refuses another version or a checksum mismatch.
+
 ## Cache layout v2 (Phase 1, OpenF1 as primary source, ADR 0002)
 
 `CACHE_LAYOUT_VERSION = 2`. Migration: none needed by hand. A v1 session no longer counts as
