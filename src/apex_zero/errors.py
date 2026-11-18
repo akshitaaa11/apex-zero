@@ -11,6 +11,7 @@ __all__ = [
     "CalibrationError",
     "DataUnavailableError",
     "GhostAlignmentError",
+    "SchemaValidationError",
     "TrackReconstructionError",
 ]
 
@@ -21,6 +22,10 @@ class ApexZeroError(Exception):
 
 class DataUnavailableError(ApexZeroError):
     """Requested session/lap/driver data is missing from the source or the cache."""
+
+
+class SchemaValidationError(ApexZeroError):
+    """A table violates its column contract (``apex_zero.data.schemas``)."""
 
 
 class TrackReconstructionError(ApexZeroError):
