@@ -58,7 +58,6 @@ app = typer.Typer(
 # --------------------------------------------------------------------------------------------
 
 _GROUPS: dict[str, str] = {
-    "data": "Fetch, cache and list sessions (FastF1 / OpenF1). [Phase 1]",
     "track": "Build and inspect track assets. [Phase 2]",
     "ghost": "Extract and validate driver ghosts. [Phase 3]",
     "car": "Car parameters and calibration. [Phase 5]",
@@ -68,6 +67,105 @@ _GROUPS: dict[str, str] = {
 
 for _name, _help in _GROUPS.items():
     app.add_typer(typer.Typer(help=_help, no_args_is_help=True), name=_name)
+
+data_app = typer.Typer(help="Fetch, cache and list sessions (FastF1).", no_args_is_help=True)
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("fetch")
+def data_fetch(
+    year: int = typer.Option(..., help="Championship year (FastF1 telemetry: 2018+)."),
+    event: str = typer.Option(..., help="Event name, location or round number, e.g. Japan."),
+    session: str = typer.Option(..., help="Session code or name: FP1-3, SQ, SS, S, Q, R."),
+    force: bool = typer.Option(False, help="Re-download and re-export even if cached."),
+) -> None:
+    """Load a session with FastF1 and write validated Parquet for every driver lap."""
+    from apex_zero.data.fastf1_loader import fetch_session
+    from apex_zero.errors import DataUnavailableError, SchemaValidationError
+
+    try:
+        result = fetch_session(year, event, session, force=force)
+    except (DataUnavailableError, SchemaValidationError, ValueError) as exc:
+        err_console.print(f"[red]fetch failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+    m = result.meta
+    origin = "processed cache (no network)" if result.from_cache else f"FastF1 {m.source_version}"
+    console.print(
+        f"{m.year} {m.event_name} {m.session}: {len(m.drivers)} drivers, {m.n_laps} laps, "
+        f"{len(m.files)} files from {origin}"
+    )
+    if result.rejected:
+        err_console.print(
+            f"[yellow]{len(result.rejected)} lap(s) failed validation and were not written "
+            "(see rejected_laps.json)"
+        )
+
+
+@data_app.command("ls")
+def data_ls(
+    year: int | None = typer.Option(None, help="Only this year."),
+) -> None:
+    """List sessions in the processed cache (offline)."""
+    from apex_zero.data.cache import list_sessions
+
+    metas = list_sessions(resolve_paths(), year)
+    if not metas:
+        console.print("no processed sessions")
+        return
+    table = Table(title="processed sessions")
+    for col in ("year", "event", "session", "source", "drivers", "laps", "fetched (UTC)"):
+        table.add_column(col)
+    for m in metas:
+        table.add_row(
+            str(m.year),
+            m.event_name,
+            m.session,
+            f"{m.source} {m.source_version}",
+            str(len(m.drivers)),
+            str(m.n_laps),
+            m.fetched_at_utc,
+        )
+    console.print(table)
+
+
+@data_app.command("info")
+def data_info(
+    year: int = typer.Argument(..., help="Championship year."),
+    event: str = typer.Argument(..., help="Event query used for fetch, or the event name."),
+    session: str = typer.Argument(..., help="Session code or name."),
+) -> None:
+    """Show metadata of a processed session (offline)."""
+    from apex_zero.data import cache
+
+    paths = resolve_paths()
+    try:
+        code = cache.normalize_session(session)
+    except ValueError as exc:
+        err_console.print(f"[red]{exc}")
+        raise typer.Exit(code=1) from exc
+    key = cache.alias_lookup(paths, year, event, code) or cache.SessionKey(
+        year, cache.slugify(event), code
+    )
+    meta = cache.read_meta(paths, key)
+    if meta is None:
+        err_console.print(
+            f"[red]{year} {event} {code} is not in the processed cache; run `apex data fetch`."
+        )
+        raise typer.Exit(code=1)
+    intact = cache.is_complete(paths, key)
+    console.print(f"[bold]{meta.year} {meta.event_name} - {meta.session_name}[/] ({key.relpath})")
+    console.print(
+        f"round {meta.round_number}, {meta.location}, {meta.country}; source {meta.source} "
+        f"{meta.source_version}; fetched {meta.fetched_at_utc}; "
+        f"{'intact' if intact else '[red]INCOMPLETE OR MODIFIED[/]'}"
+    )
+    table = Table(title=f"{len(meta.drivers)} drivers, {meta.n_laps} laps")
+    table.add_column("driver")
+    table.add_column("fastest lap [s]", justify="right")
+    for drv in sorted(meta.drivers, key=lambda d: meta.fastest_lap_s.get(d, float("inf"))):
+        t = meta.fastest_lap_s.get(drv)
+        table.add_row(drv, "-" if t is None else f"{t:.3f}")
+    console.print(table)
 
 
 def _not_implemented(command: str, phase: int) -> Callable[[], None]:
