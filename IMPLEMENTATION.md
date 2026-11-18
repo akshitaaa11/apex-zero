@@ -38,18 +38,18 @@ Critical path: 0 → 1 → 2 → 4 → 6 → 7 → 8 → 9 → 10. Phases 3 and 
 **Goal:** a clean, reproducible repo where every later phase can drop in code and tests.
 
 **Tasks**
-- [ ] **P0.1** Initialise the repo: `pyproject.toml` (uv, Python 3.12, `src/` layout, package `apex_zero`), the `.gitignore` (`data/`, `runs/`, `replays/`, `clips/`, `.env`, `viewer/node_modules`, `viewer/dist`), `.env.example`, MIT `LICENSE`.
-- [ ] **P0.2** Dependencies:
+- [x] **P0.1** Initialise the repo: `pyproject.toml` (uv, Python 3.12, `src/` layout, package `apex_zero`), the `.gitignore` (`data/`, `runs/`, `replays/`, `clips/`, `.env`, `viewer/node_modules`, `viewer/dist`), `.env.example`, MIT `LICENSE`.
+- [x] **P0.2** Dependencies:
   - runtime: `numpy`, `scipy`, `pandas`, `pyarrow`, `pydantic>=2`, `pyyaml`, `typer`, `rich`, `structlog`, `fastf1`, `httpx`, `trimesh`, `pygltflib`, `matplotlib`, `gymnasium`, `torch`, `tensorboard`
   - extras: `gpu` (CUDA torch index), `dev` (`pytest`, `pytest-cov`, `hypothesis`, `ruff`, `mypy`, `pandas-stubs`, `types-PyYAML`), `wandb` (optional)
-- [ ] **P0.3** Create the folder structure exactly as in `AGENTS.md` §3, with an `__init__.py` and a module docstring per package.
-- [ ] **P0.4** Tooling config: ruff (line length 100, rules `E,F,I,B,UP,N,SIM,NPY`), mypy strict for `src/`, and pytest markers `slow`, `gpu`, `network`.
-- [ ] **P0.5** `apex_zero/errors.py`, `utils/logging.py` (structlog), `utils/seeding.py`, `utils/units.py` (kph↔mps, deg↔rad, and the telemetry unit constants, filled in during P1).
-- [ ] **P0.6** CLI skeleton (`cli.py`, Typer) with subcommand groups `data`, `track`, `ghost`, `car`, `qss`, `train`, `eval`, `compare`, `export`, `clip`, `doctor`. `apex doctor` checks the Python version, torch, CUDA availability, cache dir permissions and the Node version.
-- [ ] **P0.7** `tests/unit/test_layering.py`: parse imports with `ast` and enforce the layer table in `AGENTS.md` §2.
-- [ ] **P0.8** Viewer scaffold: `viewer/` with Vite + TS + Three.js, ESLint, Prettier, Vitest, and a spinning-cube placeholder scene.
-- [ ] **P0.9** GitHub Actions CI: jobs `python` (ruff, mypy, pytest fast suite on ubuntu-latest, CPU torch) and `viewer` (lint, typecheck, test, build). Cache uv and pnpm.
-- [ ] **P0.10** Add the five docs files (`README.md`, `AGENTS.md`, `CLAUDE.md`, `SKILLS.md`, `IMPLEMENTATION.md`) and a `docs/decisions/0001-architecture.md` ADR.
+- [x] **P0.3** Create the folder structure exactly as in `AGENTS.md` §3, with an `__init__.py` and a module docstring per package.
+- [x] **P0.4** Tooling config: ruff (line length 100, rules `E,F,I,B,UP,N,SIM,NPY`), mypy strict for `src/`, and pytest markers `slow`, `gpu`, `network`.
+- [x] **P0.5** `apex_zero/errors.py`, `utils/logging.py` (structlog), `utils/seeding.py`, `utils/units.py` (kph↔mps, deg↔rad, and the telemetry unit constants, filled in during P1).
+- [x] **P0.6** CLI skeleton (`cli.py`, Typer) with subcommand groups `data`, `track`, `ghost`, `car`, `qss`, `train`, `eval`, `compare`, `export`, `clip`, `doctor`. `apex doctor` checks the Python version, torch, CUDA availability, cache dir permissions and the Node version.
+- [x] **P0.7** `tests/unit/test_layering.py`: parse imports with `ast` and enforce the layer table in `AGENTS.md` §2.
+- [x] **P0.8** Viewer scaffold: `viewer/` with Vite + TS + Three.js, ESLint, Prettier, Vitest, and a spinning-cube placeholder scene.
+- [x] **P0.9** GitHub Actions CI: jobs `python` (ruff, mypy, pytest fast suite on ubuntu-latest, CPU torch) and `viewer` (lint, typecheck, test, build). Cache uv and pnpm.
+- [x] **P0.10** Add the five docs files (`README.md`, `AGENTS.md`, `CLAUDE.md`, `SKILLS.md`, `IMPLEMENTATION.md`) and a `docs/decisions/0001-architecture.md` ADR.
 
 **Deliverables:** a repo that installs with `uv sync --extra dev`, `apex --help` and `apex doctor` both work, and CI is green.
 

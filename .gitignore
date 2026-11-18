@@ -1,0 +1,32 @@
+# generated data and outputs
+data/
+runs/
+replays/
+clips/
+
+# secrets / local config
+.env
+
+# viewer
+viewer/node_modules/
+viewer/dist/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# editors / os
+.idea/
+.vscode/
+.DS_Store

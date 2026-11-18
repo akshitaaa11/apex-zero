@@ -54,6 +54,12 @@ uv run apex doctor             # checks python, torch, cuda, cache dir, node
 pnpm --dir viewer install
 ```
 
+Which torch build you get: the default is the PyPI wheel (a CUDA 13 build on Linux that also runs
+without a GPU; CPU on macOS). `--extra gpu` pins the CUDA 13.0 wheel from the PyTorch index, and
+`--extra cpu` installs the much smaller CPU-only wheel (what CI uses). The two extras are mutually
+exclusive. After `uv sync --extra cpu` or `--extra gpu`, run commands with `uv run --no-sync ...`
+(or `export UV_NO_SYNC=1`), because plain `uv run` re-syncs to the default torch.
+
 Paths can be overridden in `.env` (see `.env.example`): `APEX_CACHE_DIR`, `APEX_PROCESSED_DIR`, `APEX_RUNS_DIR`.
 
 ## Quick start (Suzuka)
