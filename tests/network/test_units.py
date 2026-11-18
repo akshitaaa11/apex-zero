@@ -36,7 +36,7 @@ TOLERANCE = 0.02
 
 needs_f1_account = pytest.mark.skipif(
     not os.environ.get("F1_USERNAME"),
-    reason="FastF1 >= 3.9 live timing needs an F1 account (F1_USERNAME/F1_PASSWORD)",
+    reason="FastF1 >= 3.9 live timing needs a paid F1TV account (F1_USERNAME/F1_PASSWORD)",
 )
 
 

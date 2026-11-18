@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 
 from apex_zero.data.cache import SessionKey
@@ -130,6 +131,28 @@ def test_token_bucket_limits_rate() -> None:
     assert bucket.acquire() == 0.0  # refilled (capped at capacity)
     with pytest.raises(ValueError):
         TokenBucket(0.0, 1.0)
+
+
+def test_client_respects_both_rate_limits(tmp_path: Path, api: FakeAPI) -> None:
+    now = [0.0]
+    sent: list[float] = []
+
+    def sleep(dt: float) -> None:
+        now[0] += dt
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(now[0])
+        return api(request)
+
+    with OpenF1Client(tmp_path, transport=httpx.MockTransport(handler), clock=lambda: now[0],
+                      sleep=sleep) as c:
+        for k in range(60):
+            c.get("laps", {"session_key": k})
+    sent_arr = np.array(sent)
+    assert np.diff(sent_arr).min() >= 60 / 29 - 1e-9  # evenly spaced, under 3 req/s too
+    # no 60 s window (closed) holds more than OpenF1's 30 requests
+    assert max(int(((sent_arr >= t0) & (sent_arr <= t0 + 60)).sum()) for t0 in sent_arr) <= 30
+    assert sent[-1] == pytest.approx(59 * 60 / 29, abs=1e-6)
 
 
 def test_cache_hit_makes_no_request(make_client: Callable[..., OpenF1Client], api: FakeAPI) -> None:

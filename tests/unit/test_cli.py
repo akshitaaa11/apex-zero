@@ -186,8 +186,19 @@ def _meta(year: int = 2024) -> object:
     )
 
 
-def test_data_fetch_reports_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    from apex_zero.data import fastf1_loader
+@pytest.mark.parametrize(
+    ("source", "module", "func"),
+    [
+        (None, "openf1_loader", "fetch_openf1_session"),
+        ("openf1", "openf1_loader", "fetch_openf1_session"),
+        ("fastf1", "fastf1_loader", "fetch_session"),
+    ],
+)
+def test_data_fetch_dispatches_by_source(
+    monkeypatch: pytest.MonkeyPatch, source: str | None, module: str, func: str
+) -> None:
+    import importlib
+
     from apex_zero.data.processed import FetchResult, RejectedLap
 
     calls: list[tuple[object, ...]] = []
@@ -197,30 +208,37 @@ def test_data_fetch_reports_result(monkeypatch: pytest.MonkeyPatch) -> None:
         rej = [RejectedLap(driver="VER", lap_number=3, issues=["x"])]
         return FetchResult(meta=_meta(), from_cache=bool(calls[1:]), rejected=rej)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(fastf1_loader, "fetch_session", fake_fetch)
+    monkeypatch.setattr(importlib.import_module(f"apex_zero.data.{module}"), func, fake_fetch)
     args = ["data", "fetch", "--year", "2024", "--event", "Japan", "--session", "Q"]
+    if source is not None:
+        args += ["--source", source]
     first = runner.invoke(cli.app, args)
     assert first.exit_code == 0, first.output
-    assert "2 drivers, 30 laps" in first.output and "FastF1 3.9.2" in first.output
+    assert "2 drivers, 30 laps" in first.output and "fastf1 3.9.2" in first.output
     assert "1 lap(s) failed validation" in first.output
     second = runner.invoke(cli.app, [*args, "--force"])
     assert "processed cache (no network)" in second.output
     assert calls == [(2024, "Japan", "Q", False), (2024, "Japan", "Q", True)]
 
 
+def test_data_fetch_rejects_unknown_source() -> None:
+    args = ["data", "fetch", "--year", "2024", "--event", "Japan", "--session", "Q"]
+    assert runner.invoke(cli.app, [*args, "--source", "ergast"]).exit_code == 2
+
+
 def test_data_fetch_failure_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
-    from apex_zero.data import fastf1_loader
+    from apex_zero.data import openf1_loader
     from apex_zero.errors import DataUnavailableError
 
     def fail(*args: object, **kwargs: object) -> None:
-        raise DataUnavailableError("needs F1_USERNAME")
+        raise DataUnavailableError("OpenF1: no 2024 meeting matching 'Atlantis'")
 
-    monkeypatch.setattr(fastf1_loader, "fetch_session", fail)
+    monkeypatch.setattr(openf1_loader, "fetch_openf1_session", fail)
     result = runner.invoke(
-        cli.app, ["data", "fetch", "--year", "2024", "--event", "Japan", "--session", "Q"]
+        cli.app, ["data", "fetch", "--year", "2024", "--event", "Atlantis", "--session", "Q"]
     )
     assert result.exit_code == 1
-    assert "needs F1_USERNAME" in result.output
+    assert "Atlantis" in result.output
 
 
 def test_data_ls_and_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -236,7 +254,7 @@ def test_data_ls_and_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     paths = resolve_paths()
     meta = _meta()
     cache.write_meta(paths, meta)  # type: ignore[arg-type]
-    cache.alias_record(paths, "fastf1", 2024, "Japan", "Q", meta.key)  # type: ignore[attr-defined]
+    cache.alias_record(paths, "openf1", 2024, "Japan", "Q", meta.key)  # type: ignore[attr-defined]
 
     listing = runner.invoke(cli.app, ["data", "ls", "--year", "2024"])
     assert listing.exit_code == 0 and "Japanese Grand Prix" in listing.output

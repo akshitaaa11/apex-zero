@@ -17,6 +17,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
@@ -68,28 +69,53 @@ _GROUPS: dict[str, str] = {
 for _name, _help in _GROUPS.items():
     app.add_typer(typer.Typer(help=_help, no_args_is_help=True), name=_name)
 
-data_app = typer.Typer(help="Fetch, cache and list sessions (FastF1).", no_args_is_help=True)
+data_app = typer.Typer(
+    help="Fetch, cache and list sessions (OpenF1, FastF1).", no_args_is_help=True
+)
 app.add_typer(data_app, name="data")
+
+
+class DataSource(StrEnum):
+    """Where ``apex data fetch`` gets a session from."""
+
+    openf1 = "openf1"
+    fastf1 = "fastf1"
+
+
+_SOURCE_OPTION = typer.Option(
+    DataSource.openf1, help="openf1 (free, 2023+) or fastf1 (2018+, needs a paid F1TV account)."
+)
 
 
 @data_app.command("fetch")
 def data_fetch(
-    year: int = typer.Option(..., help="Championship year (FastF1 telemetry: 2018+)."),
-    event: str = typer.Option(..., help="Event name, location or round number, e.g. Japan."),
+    year: int = typer.Option(..., help="Championship year (OpenF1: 2023+, FastF1: 2018+)."),
+    event: str = typer.Option(..., help="Event name, location or country, e.g. Japan."),
     session: str = typer.Option(..., help="Session code or name: FP1-3, SQ, SS, S, Q, R."),
+    source: DataSource = _SOURCE_OPTION,
     force: bool = typer.Option(False, help="Re-download and re-export even if cached."),
 ) -> None:
-    """Load a session with FastF1 and write validated Parquet for every driver lap."""
-    from apex_zero.data.fastf1_loader import fetch_session
+    """Fetch a session and write validated Parquet for every driver lap."""
+    from apex_zero.data.processed import FetchResult
     from apex_zero.errors import DataUnavailableError, SchemaValidationError
 
     try:
-        result = fetch_session(year, event, session, force=force)
+        result: FetchResult
+        if source is DataSource.openf1:
+            from apex_zero.data.openf1_loader import fetch_openf1_session
+
+            result = fetch_openf1_session(year, event, session, force=force)
+        else:
+            from apex_zero.data.fastf1_loader import fetch_session
+
+            result = fetch_session(year, event, session, force=force)
     except (DataUnavailableError, SchemaValidationError, ValueError) as exc:
         err_console.print(f"[red]fetch failed:[/] {exc}")
         raise typer.Exit(code=1) from exc
     m = result.meta
-    origin = "processed cache (no network)" if result.from_cache else f"FastF1 {m.source_version}"
+    origin = (
+        "processed cache (no network)" if result.from_cache else f"{m.source} {m.source_version}"
+    )
     console.print(
         f"{m.year} {m.event_name} {m.session}: {len(m.drivers)} drivers, {m.n_laps} laps, "
         f"{len(m.files)} files from {origin}"
@@ -143,8 +169,10 @@ def data_info(
     except ValueError as exc:
         err_console.print(f"[red]{exc}")
         raise typer.Exit(code=1) from exc
-    key = cache.alias_lookup(paths, "fastf1", year, event, code) or cache.SessionKey(
-        year, cache.slugify(event), code
+    key = (
+        cache.alias_lookup(paths, "openf1", year, event, code)
+        or cache.alias_lookup(paths, "fastf1", year, event, code)
+        or cache.SessionKey(year, cache.slugify(event), code)
     )
     meta = cache.read_meta(paths, key)
     if meta is None:

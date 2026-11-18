@@ -3,8 +3,8 @@
 API facts this relies on (checked against live responses on 2026-11-18, recorded in
 ``docs/data.md``):
 
-- Base URL ``https://api.openf1.org/v1``; endpoints used: ``meetings``, ``sessions``, ``laps``,
-  ``location``, ``car_data``. Each returns a JSON list of flat objects.
+- Base URL ``https://api.openf1.org/v1``; endpoints used: ``meetings``, ``sessions``,
+  ``drivers``, ``laps``, ``stints``, ``location``, ``car_data``. Each returns a JSON list of flat objects.
 - Equality filters are query parameters (``session_key=9492``); comparison filters put the
   operator in the parameter (``date>=2024-04-06T06:58:14``), URL-encoded or not.
 - An empty result is **HTTP 404** with ``{"detail": "No results found."}``; it is returned (and
@@ -13,8 +13,10 @@ API facts this relies on (checked against live responses on 2026-11-18, recorded
   ~3.7-4 Hz.
 
 Every response is cached under ``<APEX_CACHE_DIR>/openf1/`` keyed by the sha256 of the canonical
-request URL, so repeated queries never touch the network. Requests are throttled by a token
-bucket (default 3 req/s) and retried with exponential backoff on 429, 5xx and transport errors.
+request URL, so repeated queries never touch the network. Requests are throttled by two token
+buckets matching OpenF1's published limits (3 req/s and 30 req/min, the latter observed as HTTP
+429 "Max 30 requests/minute" on 2026-11-18) and retried with exponential backoff (honouring
+``Retry-After``) on 429, 5xx and transport errors.
 """
 
 from __future__ import annotations
@@ -51,7 +53,9 @@ __all__ = [
 log = get_logger(__name__)
 
 BASE_URL: str = "https://api.openf1.org/v1"
-ENDPOINTS: frozenset[str] = frozenset({"meetings", "sessions", "laps", "location", "car_data"})
+ENDPOINTS: frozenset[str] = frozenset(
+    {"meetings", "sessions", "drivers", "laps", "stints", "location", "car_data"}
+)
 
 JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 Record = dict[str, JSONValue]
@@ -161,8 +165,11 @@ class OpenF1Client:
     Args:
         cache_dir: Response cache directory (``data.cache.openf1_cache_dir(paths)``).
         base_url: API root.
-        rate_per_s: Sustained request rate (OpenF1 asks for about 3 req/s).
-        burst: Token-bucket capacity.
+        rate_per_s: Per-second request rate (OpenF1 limit: 3 req/s).
+        burst: Per-second bucket capacity (1: evenly spaced requests).
+        per_minute: Requests per minute (OpenF1 limit: 30; default 29 for margin), enforced by
+            evenly spaced requests (a bucket of capacity 1), so no 60 s window can exceed it.
+            A bucket with a larger burst would let ``burst + per_minute`` through in a minute.
         max_retries: Retries after the first attempt for retryable failures.
         backoff_s: Base of the exponential backoff (``backoff_s * 2**attempt``).
         timeout_s: Per-request timeout.
@@ -177,7 +184,8 @@ class OpenF1Client:
         *,
         base_url: str = BASE_URL,
         rate_per_s: float = 3.0,
-        burst: float = 3.0,
+        burst: float = 1.0,
+        per_minute: float = 29.0,
         max_retries: int = 5,
         backoff_s: float = 1.0,
         timeout_s: float = 30.0,
@@ -190,7 +198,10 @@ class OpenF1Client:
         self.max_retries = max_retries
         self.backoff_s = backoff_s
         self._sleep = sleep
-        self._bucket = TokenBucket(rate_per_s, burst, clock=clock, sleep=sleep)
+        self._buckets = (
+            TokenBucket(rate_per_s, burst, clock=clock, sleep=sleep),
+            TokenBucket(per_minute / 60.0, 1.0, clock=clock, sleep=sleep),
+        )
         self._http = httpx.Client(timeout=timeout_s, transport=transport)
         #: Number of HTTP requests actually sent (retries included).
         self.network_calls = 0
@@ -233,7 +244,8 @@ class OpenF1Client:
                 that is not a JSON list of objects.
         """
         if endpoint not in ENDPOINTS:
-            raise ValueError(f"unknown OpenF1 endpoint {endpoint!r}; use one of {sorted(ENDPOINTS)}")
+            known = ", ".join(sorted(ENDPOINTS))
+            raise ValueError(f"unknown OpenF1 endpoint {endpoint!r}; use one of {known}")
         url = build_url(self.base_url, endpoint, params, filters)
         path = self.cache_path(url)
         if path.is_file():
@@ -251,7 +263,8 @@ class OpenF1Client:
     def _fetch(self, url: str) -> list[Record]:
         last_error = ""
         for attempt in range(self.max_retries + 1):
-            self._bucket.acquire()
+            for bucket in self._buckets:
+                bucket.acquire()
             self.network_calls += 1
             retry_after = 0.0
             try:
@@ -340,6 +353,14 @@ class OpenF1Client:
         if driver_number is not None:
             params["driver_number"] = driver_number
         return self.get("laps", params)
+
+    def drivers(self, session_key: int) -> list[Record]:
+        """Driver records of a session (``driver_number``, ``name_acronym``, ``team_name``...)."""
+        return self.get("drivers", {"session_key": session_key})
+
+    def stints(self, session_key: int) -> list[Record]:
+        """Tyre stints of a session (``lap_start``, ``lap_end``, ``compound``...)."""
+        return self.get("stints", {"session_key": session_key})
 
     def location(
         self, session_key: int, driver_number: int, start: str | None = None,
