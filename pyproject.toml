@@ -88,6 +88,10 @@ extend-exclude = ["viewer", "data", "runs"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "SIM", "NPY"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer declares CLI options as default values; they are evaluated once, by design.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["apex_zero"]
 

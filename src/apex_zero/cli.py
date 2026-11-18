@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import typer
 from rich.console import Console
@@ -27,6 +27,9 @@ from rich.table import Table
 
 from apex_zero import __version__
 from apex_zero.config.paths import resolve_paths
+
+if TYPE_CHECKING:
+    from apex_zero.data.cache import SessionKey
 
 __all__ = [
     "CheckResult",
@@ -59,7 +62,6 @@ app = typer.Typer(
 # --------------------------------------------------------------------------------------------
 
 _GROUPS: dict[str, str] = {
-    "track": "Build and inspect track assets. [Phase 2]",
     "ghost": "Extract and validate driver ghosts. [Phase 3]",
     "car": "Car parameters and calibration. [Phase 5]",
     "qss": "Quasi-steady-state lap-time solver. [Phase 5]",
@@ -125,6 +127,162 @@ def data_fetch(
             f"[yellow]{len(result.rejected)} lap(s) failed validation and were not written "
             "(see rejected_laps.json)"
         )
+
+
+track_app = typer.Typer(help="Build and inspect track assets.", no_args_is_help=True)
+app.add_typer(track_app, name="track")
+
+#: Acceptance checks of a real-track build (IMPLEMENTATION.md Phase 2 gate).
+LENGTH_TOL_PCT = 0.5
+INSIDE_MIN_FRAC = 0.99
+
+
+def _track_config_path(name: str, config: Path | None) -> Path:
+    return config if config is not None else Path("configs/tracks") / f"{name}.yaml"
+
+
+@track_app.command("build")
+def track_build(
+    name: str = typer.Option(..., help="Track name; config at configs/tracks/<name>.yaml."),
+    config: Path | None = typer.Option(None, help="Track config (overrides the default path)."),
+    year: int | None = typer.Option(None, help="Override the config's reference session."),
+    event: str | None = typer.Option(None, help="Override the config's reference session."),
+    session: str | None = typer.Option(None, help="Override the config's reference session."),
+    fetch: bool = typer.Option(True, help="Fetch missing sessions (OpenF1) before building."),
+) -> None:
+    """Reconstruct a track and write asset.npz, meta.json and track.glb."""
+    from apex_zero.config.track import SessionRef
+    from apex_zero.errors import DataUnavailableError, TrackReconstructionError
+    from apex_zero.track.mesh import export_glb
+    from apex_zero.track.reconstruct import (
+        build_track,
+        load_track_config,
+        resolve_sessions,
+        track_dir,
+    )
+
+    paths = resolve_paths()
+    cfg = load_track_config(_track_config_path(name, config))
+    if cfg.name != name:
+        err_console.print(f"[red]config name {cfg.name!r} does not match --name {name!r}")
+        raise typer.Exit(code=1)
+    if year is not None or event is not None or session is not None:
+        ref = cfg.sessions.reference
+        new_ref = SessionRef(
+            year=year if year is not None else ref.year,
+            event=event if event is not None else ref.event,
+            session=session if session is not None else ref.session,
+            source=ref.source,
+        )
+        cfg = cfg.model_copy(
+            update={"sessions": cfg.sessions.model_copy(update={"reference": new_ref, "extra": []})}
+        )
+    try:
+        if fetch:
+            from apex_zero.data.fastf1_loader import fetch_session
+            from apex_zero.data.openf1_loader import fetch_openf1_session
+
+            for ref in cfg.sessions.all:
+                fetcher = fetch_openf1_session if ref.source == "openf1" else fetch_session
+                res = fetcher(ref.year, ref.event, ref.session)
+                origin = "cache" if res.from_cache else ref.source
+                console.print(f"session {res.meta.key} ({origin})")
+        asset = build_track(cfg, resolve_sessions(paths, cfg.sessions.all), paths)
+    except (DataUnavailableError, TrackReconstructionError) as exc:
+        err_console.print(f"[red]track build failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+    out = track_dir(paths, name)
+    asset.save(out)
+    export_glb(asset, out / "track.glb")
+    r = asset.report
+    length_ok = abs(float(r["length_error_pct"] or 0.0)) <= LENGTH_TOL_PCT
+    inside_ok = float(r["fastest_laps_inside_frac"] or 0.0) >= INSIDE_MIN_FRAC
+    table = Table(title=f"track {name} -> {out}")
+    table.add_column("check")
+    table.add_column("value")
+    table.add_column("result")
+    table.add_row(
+        "length vs official",
+        f"{r['length_m']:.1f} m vs {r['official_length_m']:.0f} m "
+        f"({r['length_error_pct']:+.3f} %, tol ±{LENGTH_TOL_PCT} %)",
+        "[green]pass" if length_ok else "[red]FAIL",
+    )
+    table.add_row(
+        "fastest laps inside bounds",
+        f"{100 * float(r['fastest_laps_inside_frac'] or 0):.2f} %"
+        f" (min {100 * INSIDE_MIN_FRAC:.0f} %)",
+        "[green]pass" if inside_ok else "[red]FAIL",
+    )
+    table.add_row(
+        "width source",
+        str(r["width_source"]),
+        "[yellow]assumed" if r["width_source"] != "observed" else "observed",
+    )
+    table.add_row("bank source", str(r["bank_source"]), "")
+    table.add_row("build time", f"{r['build_seconds']:.1f} s", "")
+    console.print(table)
+    if not (length_ok and inside_ok):
+        err_console.print("[red]acceptance checks failed[/] (asset written; see docs/data.md)")
+        raise typer.Exit(code=1)
+
+
+@track_app.command("inspect")
+def track_inspect(
+    name: str = typer.Argument(..., help="Track name."),
+    out: Path = typer.Option(Path("docs/media/tracks"), help="Directory for the plots."),
+    debug: bool = typer.Option(False, help="Also plot raw samples and the lateral spread."),
+) -> None:
+    """Summarise a built track and save inspection plots."""
+    import numpy as np
+
+    from apex_zero.errors import TrackReconstructionError
+    from apex_zero.track.asset import TrackAsset
+    from apex_zero.track.plots import plot_debug, plot_track
+    from apex_zero.track.reconstruct import track_dir
+
+    paths = resolve_paths()
+    try:
+        asset = TrackAsset.load(track_dir(paths, name))
+    except TrackReconstructionError as exc:
+        err_console.print(f"[red]{exc}")
+        raise typer.Exit(code=1) from exc
+    table = Table(title=f"track {name} (build {asset.build_hash[:12]})")
+    table.add_column("item")
+    table.add_column("value")
+    table.add_row("length", f"{asset.length:.1f} m ({len(asset.s)} points)")
+    table.add_row("sessions", ", ".join(asset.source_sessions))
+    table.add_row("min radius", f"{1 / np.abs(asset.kappa).max():.1f} m")
+    table.add_row("elevation range", f"{asset.z.max() - asset.z.min():.1f} m")
+    table.add_row("max |grade|", f"{100 * np.abs(asset.grade).max():.1f} %")
+    for key in (
+        "length_error_pct",
+        "fastest_laps_inside_frac",
+        "width_source",
+        "bank_source",
+        "lateral_spread_median_m",
+    ):
+        table.add_row(key, str(asset.report.get(key)))
+    console.print(table)
+    written = plot_track(asset, out)
+    if debug:
+        from apex_zero.track.centerline import project_laps
+        from apex_zero.track.reconstruct import load_laps
+
+        keys = [cache_key(s) for s in asset.source_sessions]
+        laps, _ = load_laps(paths, keys)
+        proj = project_laps(asset.line, laps, None, float(asset.params.get("window_m", 50.0)))  # type: ignore[arg-type]
+        pts = np.vstack([lap.xyz for lap in laps])
+        n = np.concatenate([p[1] for p in proj])
+        written += plot_debug(asset, pts, n, out)
+    for p in written:
+        console.print(f"wrote {p}")
+
+
+def cache_key(relpath: str) -> SessionKey:
+    """Session key from a ``<year>/<event_slug>/<session>`` string."""
+    from apex_zero.data.cache import SessionKey
+
+    return SessionKey.from_relpath(relpath)
 
 
 @data_app.command("ls")

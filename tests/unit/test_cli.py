@@ -21,14 +21,14 @@ def _wide_console(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.err_console, "width", 200)
 
 
-GROUPS = ["track", "ghost", "car", "qss", "export"]
+GROUPS = ["ghost", "car", "qss", "export"]
 STUBS = ["train", "eval", "compare", "clip"]
 
 
 def test_help_lists_every_command() -> None:
     result = runner.invoke(cli.app, ["--help"])
     assert result.exit_code == 0
-    for name in [*GROUPS, *STUBS, "data", "doctor"]:
+    for name in [*GROUPS, *STUBS, "data", "track", "doctor"]:
         assert name in result.output
 
 
@@ -262,3 +262,94 @@ def test_data_ls_and_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
         info = runner.invoke(cli.app, ["data", "info", *query])
         assert info.exit_code == 0, info.output
         assert "88.197" in info.output and "LEC" in info.output and "intact" in info.output
+
+
+# --- apex track ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_track_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A processed synthetic session plus configs/tracks/synthetic.yaml in a temp CWD."""
+    import numpy as np
+    import yaml
+
+    from apex_zero.config.paths import resolve_paths
+    from apex_zero.data import cache
+    from apex_zero.data.fastf1_loader import _handle_from_session, export_processed
+    from tests.fixtures.synthetic import ellipse_track, make_session
+    from tests.unit.track.conftest import DRIVERS, synthetic_config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("APEX_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("APEX_PROCESSED_DIR", str(tmp_path / "processed"))
+    paths = resolve_paths()
+    track = ellipse_track()
+    handle = _handle_from_session(
+        2024, "Q", make_session(track, np.random.default_rng(1), drivers=DRIVERS, n_laps=3)
+    )
+    export_processed(handle, paths)
+    cache.alias_record(paths, "fastf1", 2024, "Synthetic", "Q", handle.key)
+    cfg = synthetic_config(
+        track,
+        sessions={
+            "reference": {"year": 2024, "event": "Synthetic", "session": "Q", "source": "fastf1"}
+        },
+    )
+    (tmp_path / "configs/tracks").mkdir(parents=True)
+    (tmp_path / "configs/tracks/synthetic.yaml").write_text(
+        yaml.safe_dump(cfg.model_dump(mode="json", by_alias=True))
+    )
+    return tmp_path
+
+
+def test_track_build_and_inspect(synthetic_track_env: Path) -> None:
+    built = runner.invoke(cli.app, ["track", "build", "--name", "synthetic", "--no-fetch"])
+    assert built.exit_code == 0, built.output
+    assert "length vs official" in built.output and "pass" in built.output
+    out = synthetic_track_env / "processed/tracks/synthetic"
+    assert {p.name for p in out.iterdir()} == {"asset.npz", "meta.json", "track.glb"}
+
+    inspected = runner.invoke(
+        cli.app,
+        ["track", "inspect", "synthetic", "--debug", "--out", str(synthetic_track_env / "plots")],
+    )
+    assert inspected.exit_code == 0, inspected.output
+    names = {p.name for p in (synthetic_track_env / "plots").iterdir()}
+    assert names == {
+        f"synthetic_{k}.png"
+        for k in ("xy", "curvature", "width", "elevation", "debug_raw", "debug_lateral")
+    }
+
+
+def test_track_build_reports_failed_checks(synthetic_track_env: Path) -> None:
+    import yaml
+
+    cfg_path = synthetic_track_env / "configs/tracks/synthetic.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text())
+    cfg["official_length_m"] = cfg["official_length_m"] * 1.02  # 2 % off: must fail
+    cfg_path.write_text(yaml.safe_dump(cfg))
+    built = runner.invoke(cli.app, ["track", "build", "--name", "synthetic", "--no-fetch"])
+    assert built.exit_code == 1
+    assert "FAIL" in built.output and "acceptance checks failed" in built.output
+    assert (synthetic_track_env / "processed/tracks/synthetic/asset.npz").is_file()
+
+
+def test_track_build_errors(synthetic_track_env: Path) -> None:
+    wrong = runner.invoke(
+        cli.app,
+        [
+            "track",
+            "build",
+            "--name",
+            "other",
+            "--config",
+            "configs/tracks/synthetic.yaml",
+            "--no-fetch",
+        ],
+    )
+    assert wrong.exit_code == 1 and "does not match" in wrong.output
+    missing = runner.invoke(
+        cli.app, ["track", "build", "--name", "synthetic", "--no-fetch", "--year", "2023"]
+    )
+    assert missing.exit_code == 1 and "apex data fetch" in missing.output
+    assert runner.invoke(cli.app, ["track", "inspect", "nothing"]).exit_code == 1
