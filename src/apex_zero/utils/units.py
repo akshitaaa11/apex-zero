@@ -9,7 +9,7 @@ whose X/Y/Z are integers in decimetres:
   polyline at two circuits against their official lengths (results in ``docs/data.md``).
 - ``FASTF1_POS_TO_M`` is taken from FastF1's own documentation (``fastf1.core.Telemetry``:
   "X position [1/10 m]") and agrees with the OpenF1 measurement, but the FastF1 half of the
-  network test could not run yet (live timing requires an F1 account; see ``docs/data.md``).
+  network test cannot run without a paid F1TV account (ADR 0002, ``docs/data.md``).
 - The OpenF1 vs FastF1 axis comparison is **not yet verified** for the same reason. Until it is,
   code must not mix positions from the two sources in one track build.
 """

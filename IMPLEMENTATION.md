@@ -73,14 +73,16 @@ Critical path: 0 → 1 → 2 → 4 → 6 → 7 → 8 → 9 → 10. Phases 3 and 
   - `iter_driver_laps(handle, driver=None, accurate_only=False)`
   - `export_processed(handle)`: per-driver, per-lap Parquet files for position (`SessionTime, X, Y, Z, Status`) and car data (`SessionTime, Speed, RPM, nGear, Throttle, Brake, DRS`), plus a lap table (`LapNumber, LapTime, Sector1-3, Compound, TyreLife, IsAccurate, PitIn/Out`).
 - [x] **P1.3** `data/schemas.py`: column contracts and validators (dtypes, monotonic time, NaN budget ≤ 2% per channel per lap).
-- [ ] **P1.4** **Pin units and axes.** Write `tests/network/test_units.py`, which loads one known session and checks that the fastest lap's polyline length, after the unit conversion, is within 2% of the official circuit length. Record the conversion factor in `utils/units.py` as `FASTF1_POS_TO_M`. Do the same for OpenF1 (`OPENF1_POS_TO_M`), and check whether its axes match FastF1's, recording any transform.
-  - _Status (2026-11-18): OpenF1 half done and passing at Suzuka and Monza (docs/data.md). FastF1 half and the axis comparison are written but not run: FastF1 3.9 needs an F1 account (`F1_USERNAME`/`F1_PASSWORD`). `FASTF1_POS_TO_M = 0.1` is from FastF1's docs, not yet verified._
+- [x] **P1.4** **Pin units and axes.** Write `tests/network/test_units.py`, which loads one known session and checks that the fastest lap's polyline length, after the unit conversion, is within 2% of the official circuit length. Record the conversion factor in `utils/units.py` as `FASTF1_POS_TO_M`. Do the same for OpenF1 (`OPENF1_POS_TO_M`), and check whether its axes match FastF1's, recording any transform.
+  - _Done on OpenF1 (ADR 0002): units verified at Suzuka (−0.62 %) and Monza (−0.56 %). The FastF1 half and the FastF1-vs-OpenF1 axis check are written but skip without a paid F1TV account; `FASTF1_POS_TO_M = 0.1` is documented, not verified._
 - [x] **P1.5** `data/openf1_client.py`: an httpx client with base URL `https://api.openf1.org/v1`, endpoints `sessions`, `meetings`, `laps`, `location`, `car_data`, a token-bucket limit (~3 req/s), exponential backoff, and an on-disk cache keyed by URL hash. Map `session_key` to the FastF1 session.
 - [x] **P1.6** CLI: `apex data fetch`, `apex data ls`, `apex data info <year> <event> <session>`.
 - [x] **P1.7** Fixtures: a trimmed real lap (one driver, one lap, about 300 KB) and a synthetic session generator `tests/fixtures/synthetic.py` (ellipse and figure-eight tracks with noise and elevation, multiple "drivers").
 - [x] **P1.8** Unit tests with fixtures (no network) and network tests marked.
 
 **Deliverables:** `apex data fetch --year 2024 --event Japan --session Q` produces validated Parquet for all drivers.
+
+_Delivered with OpenF1 as the source (ADR 0002): 2024 Suzuka Q, 20 drivers, 223 laps, 0 rejected. See `docs/data.md`._
 
 **Gate**
 - Fetching the same session twice makes zero network calls the second time.

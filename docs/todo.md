@@ -2,9 +2,12 @@
 
 Out-of-scope issues spotted while working on a task. Each entry: what, where, and when noticed.
 
-- (Phase 1, open) Run the FastF1 half of `tests/network/test_units.py` (units at Suzuka and
-  Monza, plus the OpenF1-vs-FastF1 axis comparison) with an F1 account, record the results in
-  `docs/data.md`, then tick P1.4. Until then `FASTF1_POS_TO_M` is documented but unverified.
+- (Phase 1, open, needs a paid F1TV account) Run the FastF1 half of
+  `tests/network/test_units.py` (units at Suzuka and Monza, plus the OpenF1-vs-FastF1 axis
+  comparison) and record the results in `docs/data.md`. Until then `FASTF1_POS_TO_M` is
+  documented but unverified, and the two sources must not be mixed in one track build.
+- (Phase 1, open) OpenF1 lacks deleted-lap flags (`Deleted` is missing). Deletions for track
+  limits appear in OpenF1's `race_control` messages; parsing them would fill the flag.
 - (Phase 1, open) No live FastF1 session has been exported yet, so the FastF1 code paths are
   tested only against fakes built from the installed 3.9.2 API. First real `apex data fetch` may
   surface dtype quirks (e.g. `Deleted` as object, string `nGear`).
