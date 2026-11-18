@@ -41,6 +41,7 @@ Python 3.12 managed with uv. FastF1 and the OpenF1 API for data; NumPy/SciPy/pan
 - Node 20+ and pnpm, for the viewer
 - An NVIDIA GPU with 8 GB+ for real training. CPU is fine for everything else and for smoke runs.
 - A few GB of disk per season of cached data
+- For FastF1 data (2018+): an F1 account with an F1TV subscription. FastF1 3.9+ signs in with `F1_USERNAME`/`F1_PASSWORD` to read F1 live-timing data; without it, `apex data fetch` fails with an explanation. OpenF1 (2023+) needs no account. See [docs/data.md](docs/data.md).
 
 ## Install
 
