@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from apex_zero.config.paths import Paths
-from apex_zero.data import cache, fastf1_loader
+from apex_zero.data import cache, fastf1_loader, processed
 from apex_zero.data.fastf1_loader import (
     SessionHandle,
     convert_car,
@@ -90,8 +90,7 @@ def test_convert_pos_units() -> None:
     np.testing.assert_allclose(out["X"], [1234.5, -1.0])  # 1/10 m -> m
     np.testing.assert_allclose(out["Z"], [73.5, 73.6])
     assert out["Status"].tolist() == ["OnTrack", None]
-    # 1 of 2 statuses missing is over the NaN budget; everything else conforms
-    assert {i.check for i in validate_frame(out, POSITION)} == {"nan_budget"}
+    assert validate_frame(out, POSITION) == []  # Status is exempt from the NaN budget
 
 
 def test_convert_car_units() -> None:
@@ -160,9 +159,14 @@ def test_iter_driver_laps_skips_laps_without_window_or_telemetry(fake_session: F
     assert not any(d == "BBB" for d, _ in keys)
 
 
-def test_window_with_no_samples_is_empty(fake_session: FakeSession) -> None:
-    tel = fake_session.pos_data["1"]
-    assert fastf1_loader._window(tel, 1e9, 1e9 + 1).empty
+def test_lap_window(fake_session: FakeSession) -> None:
+    tel = convert_pos(fake_session.pos_data["1"])
+    assert processed.lap_window(tel, 1e9, 1e9 + 1).empty
+    t = tel["SessionTime"].to_numpy()
+    w = processed.lap_window(tel, float(t[10]), float(t[20]))
+    assert w["SessionTime"].tolist() == t[9:22].tolist()  # one padding sample either side
+    w0 = processed.lap_window(tel, float(t[0]) - 5, float(t[2]))
+    assert w0["SessionTime"].tolist() == t[0:4].tolist()  # clipped at the start
 
 
 # --- export -----------------------------------------------------------------------------------

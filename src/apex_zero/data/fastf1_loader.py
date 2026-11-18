@@ -16,31 +16,24 @@ Since FastF1 3.9, live-timing data requires a Formula 1 account with an F1TV sub
 (``F1_USERNAME``/``F1_PASSWORD``, see FastF1 docs). Without it, ``Session.load`` gets HTTP 401 and
 loads no laps; :func:`load_session` turns that into :class:`DataUnavailableError`.
 
-Telemetry is stored **raw** (no resampling or interpolation): each lap file holds the samples in
-``[LapStartTime, LapEndTime]`` plus one sample either side, so the exact line crossing can be
-interpolated later (ghost extraction). Car and position data are kept separate (merging is a
-ghost-extraction concern). Laps are not filtered at ingest; flags (``IsAccurate``, ``Deleted``)
+Telemetry is stored **raw** (no resampling or interpolation), sliced per lap by
+``data.processed`` (lap window plus one sample either side). Car and position data are kept
+separate (merging is a ghost-extraction concern). Laps are not filtered at ingest; flags (``IsAccurate``, ``Deleted``)
 are kept for downstream filtering.
 """
 
 from __future__ import annotations
 
-import json
-import shutil
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Protocol
 
 import fastf1
 import pandas as pd
-from pydantic import BaseModel, ConfigDict
 
-from apex_zero import __version__
 from apex_zero.config.paths import Paths, resolve_paths
-from apex_zero.data import cache
-from apex_zero.data.schemas import CAR, LAPS, POSITION, assert_valid, validate_frame
+from apex_zero.data import cache, processed
+from apex_zero.data.processed import DriverLap, FetchResult, RejectedLap, SessionIdentity
 from apex_zero.errors import DataUnavailableError
 from apex_zero.utils.logging import get_logger
 from apex_zero.utils.units import FASTF1_POS_TO_M, MPS_PER_KPH
@@ -61,9 +54,6 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
-
-#: Raw samples kept on each side of the lap window.
-PAD_SAMPLES: int = 1
 
 
 class FastF1Session(Protocol):
@@ -93,36 +83,17 @@ class SessionHandle:
     location: str
     session_name: str
 
-
-@dataclass(frozen=True, slots=True)
-class DriverLap:
-    """One driver lap: lap-table row and raw telemetry, already converted to SI."""
-
-    driver: str
-    driver_number: str
-    lap_number: int
-    lap: pd.Series
-    pos: pd.DataFrame = field(repr=False)
-    car: pd.DataFrame = field(repr=False)
-
-
-class RejectedLap(BaseModel):
-    """A lap whose telemetry failed validation and was not written."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    driver: str
-    lap_number: int
-    issues: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class FetchResult:
-    """Outcome of :func:`fetch_session`."""
-
-    meta: cache.SessionMeta
-    from_cache: bool
-    rejected: list[RejectedLap]
+    @property
+    def identity(self) -> SessionIdentity:
+        """Identity recorded in ``session_meta.json``."""
+        return SessionIdentity(
+            key=self.key,
+            event_name=self.event_name,
+            round_number=self.round_number,
+            country=self.country,
+            location=self.location,
+            session_name=self.session_name,
+        )
 
 
 # --------------------------------------------------------------------------------------------
@@ -219,18 +190,6 @@ def convert_laps(raw: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["Driver", "LapNumber"]).reset_index(drop=True)
 
 
-def _window(telemetry: pd.DataFrame, start_s: float, end_s: float) -> pd.DataFrame:
-    """Raw samples in ``[start_s, end_s]`` plus ``PAD_SAMPLES`` either side."""
-    t = _seconds(telemetry["SessionTime"]).to_numpy()
-    inside = (t >= start_s) & (t <= end_s)
-    if not inside.any():
-        return telemetry.iloc[0:0]
-    idx = inside.nonzero()[0]
-    lo = max(int(idx[0]) - PAD_SAMPLES, 0)
-    hi = min(int(idx[-1]) + PAD_SAMPLES + 1, len(telemetry))
-    return telemetry.iloc[lo:hi]
-
-
 # --------------------------------------------------------------------------------------------
 # Loading
 # --------------------------------------------------------------------------------------------
@@ -320,39 +279,14 @@ def iter_driver_laps(
         accurate_only: Only laps FastF1 flags ``IsAccurate``.
     """
     laps = convert_laps(handle.session.laps)
-    if driver is not None:
-        laps = laps[(laps["Driver"] == driver) | (laps["DriverNumber"] == str(driver))]
-    if accurate_only:
-        laps = laps[laps["IsAccurate"].fillna(False).astype(bool)]
-    pos_all = handle.session.pos_data
-    car_all = handle.session.car_data
-    for _, lap in laps.iterrows():
-        drv, num = str(lap["Driver"]), str(lap["DriverNumber"])
-        start, end = lap["LapStartTime"], lap["LapEndTime"]
-        if pd.isna(lap["LapNumber"]) or pd.isna(start) or pd.isna(end):
-            log.info("lap_skipped_no_window", driver=drv, lap=str(lap["LapNumber"]))
-            continue
-        if num not in pos_all or num not in car_all:
-            log.info("lap_skipped_no_telemetry", driver=drv, lap=int(lap["LapNumber"]))
-            continue
-        yield DriverLap(
-            driver=drv,
-            driver_number=num,
-            lap_number=int(lap["LapNumber"]),
-            lap=lap,
-            pos=convert_pos(_window(pos_all[num], float(start), float(end))),
-            car=convert_car(_window(car_all[num], float(start), float(end))),
-        )
+    pos = {num: convert_pos(df) for num, df in handle.session.pos_data.items()}
+    car = {num: convert_car(df) for num, df in handle.session.car_data.items()}
+    yield from processed.iter_laps(laps, pos, car, driver=driver, accurate_only=accurate_only)
 
 
 # --------------------------------------------------------------------------------------------
 # Export
 # --------------------------------------------------------------------------------------------
-
-
-def _fastest(laps: pd.DataFrame) -> dict[str, float]:
-    ok = laps[laps["LapTime"].notna() & ~laps["Deleted"].fillna(False).astype(bool)]
-    return {str(d): float(t) for d, t in ok.groupby("Driver")["LapTime"].min().items()}
 
 
 def export_processed(
@@ -367,65 +301,14 @@ def export_processed(
         SchemaValidationError: The lap table is invalid.
     """
     paths = resolve_paths() if paths is None else paths
-    root = cache.session_dir(paths, handle.key)
-    if root.exists():
-        shutil.rmtree(root)
-    root.mkdir(parents=True)
-
-    laps = convert_laps(handle.session.laps)
-    assert_valid(laps, LAPS, context=str(handle.key))
-    written: list[Path] = [cache.laps_path(paths, handle.key)]
-    laps.to_parquet(written[0], index=False)
-
-    rejected: list[RejectedLap] = []
-    for dl in iter_driver_laps(handle):
-        issues = [*validate_frame(dl.pos, POSITION), *validate_frame(dl.car, CAR)]
-        if issues:
-            rej = RejectedLap(
-                driver=dl.driver, lap_number=dl.lap_number, issues=[str(i) for i in issues]
-            )
-            log.warning("lap_rejected", driver=dl.driver, lap=dl.lap_number, issues=rej.issues)
-            rejected.append(rej)
-            continue
-        for frame, path in (
-            (dl.pos, cache.pos_path(paths, handle.key, dl.driver, dl.lap_number)),
-            (dl.car, cache.car_path(paths, handle.key, dl.driver, dl.lap_number)),
-        ):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            frame.to_parquet(path, index=False)
-            written.append(path)
-
-    if rejected:
-        rej_path = root / "rejected_laps.json"
-        rej_path.write_text(
-            json.dumps([r.model_dump() for r in rejected], indent=2) + "\n", encoding="utf-8"
-        )
-        written.append(rej_path)
-
-    meta = cache.SessionMeta(
+    return processed.write_session(
+        paths,
+        handle.identity,
+        convert_laps(handle.session.laps),
+        iter_driver_laps(handle),
         source="fastf1",
         source_version=str(fastf1.__version__),
-        apex_zero_version=__version__,
-        fetched_at_utc=datetime.now(UTC).isoformat(timespec="seconds"),
-        year=handle.key.year,
-        event_name=handle.event_name,
-        event_slug=handle.key.event_slug,
-        round_number=handle.round_number,
-        country=handle.country,
-        location=handle.location,
-        session=handle.key.session,
-        session_name=handle.session_name,
-        drivers=sorted(laps["Driver"].unique().tolist()),
-        fastest_lap_s=_fastest(laps),
-        n_laps=len(laps),
-        files=[cache.file_record(root, p) for p in written],
     )
-    cache.write_meta(paths, meta)
-    log.info(
-        "session_exported", key=str(handle.key), laps=len(laps), files=len(written),
-        rejected=len(rejected),
-    )
-    return meta, rejected
 
 
 def fetch_session(
@@ -443,20 +326,10 @@ def fetch_session(
     """
     paths = resolve_paths() if paths is None else paths
     if not force:
-        key = cache.alias_lookup(paths, year, str(event), session)
-        if key is not None and cache.is_complete(paths, key):
-            meta = cache.read_meta(paths, key)
-            assert meta is not None
-            log.info("fetch_cache_hit", key=str(key))
-            return FetchResult(meta=meta, from_cache=True, rejected=_read_rejected(paths, key))
+        hit = processed.cached_session(paths, "fastf1", year, str(event), session)
+        if hit is not None:
+            return hit
     handle = load_session(year, event, session, paths=paths)
     meta, rejected = export_processed(handle, paths)
-    cache.alias_record(paths, year, str(event), session, handle.key)
+    processed.remember_query(paths, "fastf1", year, str(event), session, handle.key)
     return FetchResult(meta=meta, from_cache=False, rejected=rejected)
-
-
-def _read_rejected(paths: Paths, key: cache.SessionKey) -> list[RejectedLap]:
-    path = cache.session_dir(paths, key) / "rejected_laps.json"
-    if not path.is_file():
-        return []
-    return [RejectedLap.model_validate(r) for r in json.loads(path.read_text(encoding="utf-8"))]

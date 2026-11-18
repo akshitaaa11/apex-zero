@@ -1,4 +1,4 @@
-"""Cache layout and keys (P1.1). Layout version 1, see ``docs/migrations.md``.
+"""Cache layout and keys (P1.1). Layout version 2, see ``docs/migrations.md``.
 
 Raw source caches live under ``APEX_CACHE_DIR``::
 
@@ -7,7 +7,7 @@ Raw source caches live under ``APEX_CACHE_DIR``::
 
 Validated, SI-unit tables live under ``APEX_PROCESSED_DIR``::
 
-    <processed>/aliases.json                       query -> session dir (offline re-fetch)
+    <processed>/aliases.json                       (source, query) -> session dir (offline re-fetch)
     <processed>/<year>/<event_slug>/<session>/
         session_meta.json                          written last; marks the session complete
         laps.parquet
@@ -16,7 +16,8 @@ Validated, SI-unit tables live under ``APEX_PROCESSED_DIR``::
 
 Keys are deterministic: ``event_slug`` comes from the official event name, ``session`` is the
 canonical code (``FP1``..``FP3``, ``SQ``, ``SS``, ``S``, ``Q``, ``R``), and lap files are named by
-lap number.
+lap number. A session directory holds one source's export (``session_meta.json`` says which);
+fetching the same session from the other source replaces it.
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ __all__ = [
 ]
 
 #: Bump (with a ``docs/migrations.md`` entry) whenever the layout or ``SessionMeta`` changes.
-CACHE_LAYOUT_VERSION: int = 1
+CACHE_LAYOUT_VERSION: int = 2
 
 #: Canonical session code -> session name used by FastF1 and OpenF1.
 SESSION_NAMES: dict[str, str] = {
@@ -184,7 +185,8 @@ class SessionMeta(BaseModel):
     year: int
     event_name: str
     event_slug: str
-    round_number: int
+    #: Championship round; ``None`` when the source does not provide it (OpenF1).
+    round_number: int | None
     country: str
     location: str
     session: str
@@ -270,8 +272,9 @@ def _aliases_path(paths: Paths) -> Path:
     return paths.processed_dir / "aliases.json"
 
 
-def _alias(year: int, event_query: str, session: str) -> str:
-    return f"{year}|{' '.join(event_query.casefold().split())}|{normalize_session(session)}"
+def _alias(source: str, year: int, event_query: str, session: str) -> str:
+    query = " ".join(event_query.casefold().split())
+    return f"{source}|{year}|{query}|{normalize_session(session)}"
 
 
 def _read_aliases(paths: Paths) -> dict[str, str]:
@@ -286,19 +289,23 @@ def _read_aliases(paths: Paths) -> dict[str, str]:
     return data
 
 
-def alias_lookup(paths: Paths, year: int, event_query: str, session: str) -> SessionKey | None:
-    """Session key previously resolved for this (year, event query, session), if any.
+def alias_lookup(
+    paths: Paths, source: str, year: int, event_query: str, session: str
+) -> SessionKey | None:
+    """Session key previously resolved for this (source, year, event query, session), if any.
 
     Lets a repeated ``fetch`` find the processed session without resolving the event schedule.
     """
-    rel = _read_aliases(paths).get(_alias(year, event_query, session))
+    rel = _read_aliases(paths).get(_alias(source, year, event_query, session))
     return None if rel is None else SessionKey.from_relpath(rel)
 
 
-def alias_record(paths: Paths, year: int, event_query: str, session: str, key: SessionKey) -> None:
-    """Remember which session a query resolved to."""
+def alias_record(
+    paths: Paths, source: str, year: int, event_query: str, session: str, key: SessionKey
+) -> None:
+    """Remember which session a query to ``source`` resolved to."""
     aliases = _read_aliases(paths)
-    aliases[_alias(year, event_query, session)] = key.relpath.as_posix()
+    aliases[_alias(source, year, event_query, session)] = key.relpath.as_posix()
     _atomic_write_text(_aliases_path(paths), json.dumps(aliases, indent=2, sort_keys=True) + "\n")
 
 

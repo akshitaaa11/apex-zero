@@ -143,7 +143,7 @@ def data_info(
     except ValueError as exc:
         err_console.print(f"[red]{exc}")
         raise typer.Exit(code=1) from exc
-    key = cache.alias_lookup(paths, year, event, code) or cache.SessionKey(
+    key = cache.alias_lookup(paths, "fastf1", year, event, code) or cache.SessionKey(
         year, cache.slugify(event), code
     )
     meta = cache.read_meta(paths, key)
@@ -155,7 +155,7 @@ def data_info(
     intact = cache.is_complete(paths, key)
     console.print(f"[bold]{meta.year} {meta.event_name} - {meta.session_name}[/] ({key.relpath})")
     console.print(
-        f"round {meta.round_number}, {meta.location}, {meta.country}; source {meta.source} "
+        f"round {meta.round_number or '?'}, {meta.location}, {meta.country}; source {meta.source} "
         f"{meta.source_version}; fetched {meta.fetched_at_utc}; "
         f"{'intact' if intact else '[red]INCOMPLETE OR MODIFIED[/]'}"
     )

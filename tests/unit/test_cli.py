@@ -188,7 +188,7 @@ def _meta(year: int = 2024) -> object:
 
 def test_data_fetch_reports_result(monkeypatch: pytest.MonkeyPatch) -> None:
     from apex_zero.data import fastf1_loader
-    from apex_zero.data.fastf1_loader import FetchResult, RejectedLap
+    from apex_zero.data.processed import FetchResult, RejectedLap
 
     calls: list[tuple[object, ...]] = []
 
@@ -236,7 +236,7 @@ def test_data_ls_and_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     paths = resolve_paths()
     meta = _meta()
     cache.write_meta(paths, meta)  # type: ignore[arg-type]
-    cache.alias_record(paths, 2024, "Japan", "Q", meta.key)  # type: ignore[attr-defined]
+    cache.alias_record(paths, "fastf1", 2024, "Japan", "Q", meta.key)  # type: ignore[attr-defined]
 
     listing = runner.invoke(cli.app, ["data", "ls", "--year", "2024"])
     assert listing.exit_code == 0 and "Japanese Grand Prix" in listing.output

@@ -98,15 +98,23 @@ def test_old_layout_version_is_incomplete(paths: Paths) -> None:
     assert not cache.is_complete(paths, key)
 
 
-def test_aliases(paths: Paths) -> None:
+def test_aliases_are_per_source(paths: Paths) -> None:
     key = cache.SessionKey(2024, "japanese_grand_prix", "Q")
-    assert cache.alias_lookup(paths, 2024, "Japan", "Q") is None
-    cache.alias_record(paths, 2024, "Japan", "Qualifying", key)
-    assert cache.alias_lookup(paths, 2024, " japan ", "q") == key
-    assert cache.alias_lookup(paths, 2023, "Japan", "Q") is None
+    assert cache.alias_lookup(paths, "openf1", 2024, "Japan", "Q") is None
+    cache.alias_record(paths, "openf1", 2024, "Japan", "Qualifying", key)
+    assert cache.alias_lookup(paths, "openf1", 2024, " japan ", "q") == key
+    assert cache.alias_lookup(paths, "fastf1", 2024, "Japan", "Q") is None
+    assert cache.alias_lookup(paths, "openf1", 2023, "Japan", "Q") is None
     (paths.processed_dir / "aliases.json").write_text("[1, 2]")
     with pytest.raises(ValueError, match="mapping"):
-        cache.alias_lookup(paths, 2024, "Japan", "Q")
+        cache.alias_lookup(paths, "openf1", 2024, "Japan", "Q")
+
+
+def test_round_number_is_optional(paths: Paths) -> None:
+    key = cache.SessionKey(2024, "japanese_grand_prix", "Q")
+    meta = make_meta(paths, key).model_copy(update={"round_number": None, "source": "openf1"})
+    cache.write_meta(paths, meta)
+    assert cache.read_meta(paths, key) == meta
 
 
 def test_list_sessions(paths: Paths) -> None:

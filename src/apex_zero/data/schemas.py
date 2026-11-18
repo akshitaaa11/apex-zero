@@ -1,11 +1,14 @@
 """Column contracts for the processed session tables, and their validators (P1.3).
 
-Processed tables are written by ``data.fastf1_loader`` and read by every later phase. They are
-**SI**: the conversion from source units happens once, at ingest.
+Processed tables are written by ``data.openf1_loader`` or ``data.fastf1_loader`` and read by
+every later phase. They are **SI**: the conversion from source units happens once, at ingest.
+``SessionTime`` is seconds on the source's session clock: FastF1's ``SessionTime``, or for
+OpenF1 seconds since the session's scheduled ``date_start``. Times are only comparable within
+one session export.
 
 ``position`` (one Parquet file per driver lap, raw samples, ~4 Hz):
     ``SessionTime`` [s], ``X``/``Y``/``Z`` [m, world frame of the source], ``Status`` (str,
-    ``"OnTrack"``/``"OffTrack"``).
+    ``"OnTrack"``/``"OffTrack"``; missing throughout for OpenF1, which has no such channel).
 
 ``car`` (one Parquet file per driver lap, raw samples, ~4 Hz):
     ``SessionTime`` [s], ``Speed`` [m/s], ``RPM`` [rev/min, name says it], ``nGear`` (int),
@@ -62,12 +65,15 @@ class ColumnSpec:
         unit: Unit (documentation; ``""`` if dimensionless or categorical).
         nullable: Whether missing values are allowed at all. For tables with a NaN budget,
             nullable channels may be missing in at most ``NAN_BUDGET`` of rows.
+        budgeted: Whether the table's NaN budget applies. ``False`` for channels a source may
+            not provide at all (``Status`` from OpenF1).
     """
 
     name: str
     kind: Kind
     unit: str = ""
     nullable: bool = False
+    budgeted: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +121,7 @@ POSITION = TableContract(
         ColumnSpec("X", "float", "m", nullable=True),
         ColumnSpec("Y", "float", "m", nullable=True),
         ColumnSpec("Z", "float", "m", nullable=True),
-        ColumnSpec("Status", "str", nullable=True),
+        ColumnSpec("Status", "str", nullable=True, budgeted=False),
     ),
     time_column="SessionTime",
     nan_budget=NAN_BUDGET,
@@ -207,7 +213,7 @@ def validate_frame(df: pd.DataFrame, contract: TableContract) -> list[Validation
             continue
         if not spec.nullable:
             issue(spec.name, "nulls", f"{n_null} missing value(s) in a non-nullable column")
-        elif contract.nan_budget is not None and n_rows > 0:
+        elif spec.budgeted and contract.nan_budget is not None and n_rows > 0:
             frac = n_null / n_rows
             if frac > contract.nan_budget:
                 issue(
